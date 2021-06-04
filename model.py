@@ -72,7 +72,7 @@ class Model(object):
 
         if self.trainer is None:
             self.trainer = ModelTrainer(self.objective, self.c, 
-                                        device=device, n_jobs_dataloader=n_jobs_dataloader, batch_size=batch_size, test=True)
+                                        device=device, n_jobs_dataloader=n_jobs_dataloader, batch_size=batch_size)
 
         self.trainer.test(dataset, self.net)
         # Get results

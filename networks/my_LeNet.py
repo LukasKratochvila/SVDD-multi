@@ -15,19 +15,19 @@ from base.base_net import BaseNet
 
 class MY_LeNetBN(BaseNet):
 
-    def __init__(self):
+    def __init__(self, rep_dim: int=3, in_channels: int=3):
         super().__init__()
 
-        self.rep_dim = 1000#128
+        self.rep_dim = rep_dim#1000#128
         self.pool = nn.MaxPool2d(2, 2)
 
-        self.conv1 = nn.Conv2d(3, 32, 5, bias=True, padding=2)
+        self.conv1 = nn.Conv2d(in_channels, 32, 5, bias=True, padding=2)
         self.bn2d1 = nn.BatchNorm2d(32, eps=1e-04, affine=False)
         self.conv2 = nn.Conv2d(32, 64, 5, bias=True, padding=2)
         self.bn2d2 = nn.BatchNorm2d(64, eps=1e-04, affine=False)
         self.conv3 = nn.Conv2d(64, 128, 5, bias=True, padding=2)
         self.bn2d3 = nn.BatchNorm2d(128, eps=1e-04, affine=False)
-        self.fc1 = nn.Linear(128 * 4 * 4, self.rep_dim, bias=True) # 20 * 15
+        self.fc1 = nn.Linear(128 * 4 * 4, self.rep_dim, bias=True) # 4 * 4
 
         nn.init.xavier_normal_(self.conv1.weight, gain=1.0)
         nn.init.xavier_normal_(self.conv2.weight, gain=1.0)

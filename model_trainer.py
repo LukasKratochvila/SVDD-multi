@@ -25,7 +25,7 @@ class ModelTrainer(BaseTrainer):
                  lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, 
                  lbd1: float = 0, lbd2: float = 0, device: str = 'cuda', n_jobs_dataloader: int = 0,
                  enable_vis: bool = True, vis_title: str = 'Model on dataset',
-                 valid_epoch: int = -1, restore_best: bool = False, test: bool =False):
+                 valid_epoch: int = -1, restore_best: bool = False):
         super().__init__(optimizer_name, lr, n_epochs, lr_milestones, batch_size, weight_decay, device,
                          n_jobs_dataloader)
 
@@ -50,16 +50,9 @@ class ModelTrainer(BaseTrainer):
         
         # Visdom
         self.enable_vis = enable_vis
-        if self.enable_vis and not test:
+        self.vis_title = vis_title
+        if self.enable_vis:
             self.viz = visdom.Visdom(env='example')
-            self.vis_legend = ['Total Loss']
-            #self.iter_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]', 'Model training loss', self.vis_legend)
-            #self.val_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]', 'Model validation loss', self.vis_legend)
-            self.epoch_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]', vis_title, list(('Training','Validation')))
-    
-            #self.iter_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]', 'Model Top1 accuracy', self.vis_legend)
-            #self.val_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]', 'Model Top1 accuracy', self.vis_legend)
-            self.epoch_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]', vis_title, list(('Training','Validation')))
 
     def train(self, dataset: BaseADDataset, net: BaseNet):
         logger = logging.getLogger()
@@ -100,6 +93,19 @@ class ModelTrainer(BaseTrainer):
                     logger.info('Minimal dist for {:d} class to {:d} class: {:.5f}'.format(j, i, np.min(l)))
             
             logger.info('Center c initialized.')
+            
+       
+            if self.enable_vis:
+                #self.vis_legend = ['Total Loss']
+                #self.iter_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]', 'Model training loss', self.vis_legend)
+                #self.val_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]', 'Model validation loss', self.vis_legend)
+                self.epoch_plot = self.create_vis_plot('Epoch[-]', 'Loss[-]',
+                                                       self.vis_title, list(('Training','Validation')))
+    
+                #self.iter_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]', 'Model Top1 accuracy', self.vis_legend)
+                #self.val_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]', 'Model Top1 accuracy', self.vis_legend)
+                self.epoch_acc_plot = self.create_vis_plot('Epoch[-]', 'Average Top1 accuracy[-]',
+                                                           self.vis_title, list(('Training','Validation')))    
 
         # Training
         logger.info('Starting training...')
@@ -206,22 +212,22 @@ class ModelTrainer(BaseTrainer):
             if epoch+1 in self.lr_milestones:
                 logger.info('  LR scheduler: new learning rate is %g' % float(scheduler.get_lr()[0]*0.1))
                 
-            # if (epoch+1)%1 == 0:
-                #logger.info('Center c Updating... ')
-            self.c = self.update_center_c(train_loader, net, dataset.n_classes, step=0.001)
-                # if self.objective == 'multi-class' and False:
-                #     for j in range(dataset.n_classes):
-                #         l=list()
-                #         for i in range(dataset.n_classes):
-                #             if i != j:
-                #                 s=sum((self.c[...,j]-self.c[...,i]) ** 2)
-                #                 l.append(s) 
-                #         l=np.array(l)
-                #         i=np.argmin(l)
-                #         if i >= j:
-                #             i += 1
-                #         logger.info('Minimal dist for {:d} class to {:d} class: {:.5f}'.format(j, i, np.min(l)))
-            logger.info('Center c Updated. ')
+            if (epoch+1)%5 == 0:
+                logger.info('Center c Updating... ')
+                self.c = self.update_center_c(train_loader, net, dataset.n_classes, step=0.1)
+                if self.objective == 'multi-class':
+                    for j in range(dataset.n_classes):
+                        l=list()
+                        for i in range(dataset.n_classes):
+                            if i != j:
+                                s=sum((self.c[...,j]-self.c[...,i]) ** 2)
+                                l.append(s) 
+                        l=np.array(l)
+                        i=np.argmin(l)
+                        if i >= j:
+                            i += 1
+                        logger.info('Minimal dist for {:d} class to {:d} class: {:.5f}'.format(j, i, np.min(l)))
+                logger.info('Center c Updated. ')
                 
             if self.enable_vis:
                 if hasattr(dataset, "validation_set"):
@@ -257,6 +263,7 @@ class ModelTrainer(BaseTrainer):
         logger.info('Starting testing...')
         start_time = time.time()
         idx_label_score = []
+        points = []
         net.eval()
         with torch.no_grad():
             for data in test_loader:
@@ -274,21 +281,46 @@ class ModelTrainer(BaseTrainer):
                 idx_label_score += list(zip(idx.cpu().data.numpy().tolist(),
                                             labels.cpu().data.numpy().tolist(),
                                             dist.cpu().data.numpy().tolist()))
-
+                points += list(outputs.cpu().data.numpy().tolist())
+                
         self.test_time = time.time() - start_time
         logger.info('Testing time: %.3f' % self.test_time)
 
         self.test_scores = idx_label_score
 
         # Compute AUC
-        _, labels, scores = zip(*idx_label_score)
+        _, labels_l, scores = zip(*idx_label_score)
         #labels = np.array(np.argmax(labels,1))
-        labels = np.array(labels)
+        labels = np.array(labels_l)
         scores = np.array(scores)
 
         #self.test_acc = accuracy_score(labels, np.argmin(scores, axis=1))
         self.test_acc = top_k_accuracy_score(labels, scores,k=1)
         logger.info('Test set Top1: {:.2f}%'.format(100. * self.test_acc))
+        
+        # Plot points
+        # points += self.c.cpu().data.numpy().tolist()
+        # label_l += torch.ones(self.c.shape[])
+        outputs = torch.Tensor(points)
+        #torch.Tensor(self.c)[0:3].transpose(0,1).cpu()
+        
+        if self.enable_vis:
+            logger.info('Plotting points...')
+            for idx in range(0,min(6,self.c.shape[0]),3):
+                self.viz.scatter(X=outputs[..., idx:idx+3].cpu(),
+                                 Y=torch.Tensor(labels+1).cpu(),
+                                 opts=dict(xlabel='Feature {}'.format(idx+1),
+                                           ylabel='Feature {}'.format(idx+2),
+                                           zlabel='Feature {}'.format(idx+3),
+                                           title='Points',
+                                           markersize=3))
+                self.viz.scatter(X=torch.Tensor(self.c)[idx:idx+3].transpose(0,1).cpu(),
+                                 opts=dict(xlabel='Feature {}'.format(idx+1),
+                                           ylabel='Feature {}'.format(idx+2),
+                                           zlabel='Feature {}'.format(idx+3),
+                                           title='Centers',
+                                           markersize=7,
+                                           markersymbol='cross'))
 
         logger.info('Finished testing.')
         
@@ -329,23 +361,29 @@ class ModelTrainer(BaseTrainer):
         return c
     def update_center_c(self, train_loader: DataLoader, net: BaseNet, n_classes: int, step: float=0.1):
         """Update hypersphere center c by forward pass on the data."""
-        n_samples = torch.zeros(n_classes)
-        c = torch.zeros(net.rep_dim, n_classes, device=self.device)
+        # n_samples = torch.zeros(n_classes)
+        # c = torch.zeros(net.rep_dim, n_classes, device=self.device)
 
-        net.eval()
-        with torch.no_grad():
-            for data in train_loader:
-                # get the inputs of the batch
-                inputs, labels, _ = data
-                inputs = inputs.to(self.device)
-                outputs = net(inputs)
-                for i in range(n_classes):
-                    n_samples[i] += outputs[labels == i].shape[0]
-                    c[..., i] += torch.sum(outputs[labels == i], dim=0)
-        for i in range(n_classes):
-            c[..., i] /= n_samples[i]    
-        diff = self.c-c 
-        return self.c + step * diff
+        # net.eval()
+        # with torch.no_grad():
+        #     for data in train_loader:
+        #         # get the inputs of the batch
+        #         inputs, labels, _ = data
+        #         inputs = inputs.to(self.device)
+        #         outputs = net(inputs)
+        #         for i in range(n_classes):
+        #             n_samples[i] += outputs[labels == i].shape[0]
+        #             c[..., i] += torch.sum(outputs[labels == i], dim=0)
+        # for i in range(n_classes):
+        #     c[..., i] /= n_samples[i]    
+        # diff = self.c-c 
+        # return self.c + step * diff
+        diff = torch.Tensor(self.c.shape[0],n_classes,n_classes)
+        for j in range(n_classes):
+            for i in range(n_classes):
+                    diff[...,j,i]=self.c[...,j]-self.c[...,i]
+        avg = torch.mean(diff, dim=2)
+        return self.c + step * torch.Tensor(avg)
         
     def create_vis_plot(self, _xlabel, _ylabel, _title, _legend):
         return self.viz.line(X=torch.zeros((1,len(_legend))).cpu(),
@@ -395,3 +433,4 @@ class ModelTrainer(BaseTrainer):
             file.write(to_write + '\n')
         file.close()
         vis.delete_env(env=current_env)
+        
