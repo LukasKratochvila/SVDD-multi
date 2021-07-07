@@ -22,8 +22,14 @@ from tabulate import tabulate
 from sklearn.metrics.ranking import roc_curve
 import matplotlib.pyplot as plt
 
-xp_path="log/test"
-dataset_name = 'cifar10' # new dataset for test
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+xp_path="log/c"
+dataset_name = 'mnist' # new dataset for test
 
 load_config=os.path.join(xp_path,"config.json")
 load_model="/model.tar"
@@ -173,3 +179,5 @@ indices, labels, scores = np.array(indices), np.array(labels), np.array(scores)
 # if len(ix) > 0:
 #     X= torch.tensor(np.transpose(dataset_cfg.test_set.test_data[ix, ...], (0, 3, 1, 2)))
 #     plot_images_grid(X, title='Wrong classified', padding=2, nrow=10)
+logging.shutdown()
+logger.handlers.clear()
