@@ -1,8 +1,10 @@
 from .mydata import MYDATA_Dataset
 from .cifar10 import CIFAR10_Dataset
+from .mnist import MNIST_Dataset
+from .joybuy import JOYBUY_Dataset
 
 def implemented_datasets():
-    return ('cifar10','mydata100', 'mydata200', 'mydata300', 'mydata400','mydata100aa','mydata200aa','mydata300aa','mydata400aa','mydata100H', 'mydata300H','mydata100Haa','mydata300Haa')
+    return ('joybuy','mnist','cifar10','mydata100', 'mydata200', 'mydata300', 'mydata400','mydata100aa','mydata200aa','mydata300aa','mydata400aa','mydata100H', 'mydata300H','mydata100Haa','mydata300Haa')
 
 def load_dataset(dataset_name, data_path):
     """Loads the dataset."""
@@ -10,7 +12,12 @@ def load_dataset(dataset_name, data_path):
     assert dataset_name in implemented_datasets()
 
     dataset = None
-
+    
+    if dataset_name == 'joybuy':
+        dataset = JOYBUY_Dataset(root=data_path)
+    if dataset_name == 'mnist':
+        dataset = MNIST_Dataset(root=data_path)
+        
     if dataset_name == 'cifar10':
         dataset = CIFAR10_Dataset(root=data_path)
         

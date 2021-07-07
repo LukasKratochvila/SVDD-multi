@@ -39,7 +39,7 @@ class CIFAR10_Dataset(TorchvisionDataset):
 
         target_transform = None#transforms.Lambda(lambda x: int(x in self.outlier_classes))
 
-        train_set = MyCIFAR10(n_classes=self.n_classes, sample=True,
+        train_set = MyCIFAR10(n_classes=self.n_classes, sample=False,
                               root=self.root, train=True, download=True,
                               transform=transform, target_transform=target_transform)
         # Subset train set to normal class
