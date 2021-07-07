@@ -9,6 +9,8 @@ from model import Model
 from datasets.main import load_dataset, implemented_datasets
 from networks.main import implemented_networks
 
+import socket
+
 ################################################################################
 # Settings
 ################################################################################
@@ -28,16 +30,16 @@ from networks.main import implemented_networks
 @click.option('--seed', type=int, default=0, help='Set seed. If -1, use randomization.')
 @click.option('--optimizer_name', type=click.Choice(['adam', 'amsgrad']), default='adam',
               help='Name of the optimizer to use for network training.')
-@click.option('--lr', type=float, default=0.0001,
+@click.option('--lr', type=float, default=0.01,
               help='Initial learning rate for network training. Default=0.001')
-@click.option('--n_epochs', type=int, default=50, help='Number of epochs to train.')
-@click.option('--lr_milestone', type=int, default=[10,20,30,40], multiple=True,
+@click.option('--n_epochs', type=int, default=100, help='Number of epochs to train.')
+@click.option('--lr_milestone', type=int, default=[], multiple=True,#10,20,30,40,50,70,90,110]
               help='Lr scheduler milestones at which lr is multiplied by 0.1. Can be multiple and must be increasing.')
-@click.option('--batch_size', type=int, default=128, help='Batch size for mini-batch training.')
+@click.option('--batch_size', type=int, default=1280, help='Batch size for mini-batch training.')
 @click.option('--weight_decay', type=float, default=1e-6, help='Weight decay (L2 penalty).') #1e-6, 
 @click.option('--l1', type=float, default=1e-6, help='L1 penalty to loss.')
 @click.option('--l2', type=float, default=1e-6, help='L2 penalty to loss.')
-@click.option('--n_jobs_dataloader', type=int, default=5,
+@click.option('--n_jobs_dataloader', type=int, default=1,
               help='Number of workers for data loading. 0 means that the data will be loaded in the main process.')
 @click.option('--visdom', flag_value=True, default=True, help='Enable visdom output (Needs visdom server)')
 @click.option('--valid_epoch', type=int, default=-1, help='Epoch for validation.')
@@ -73,7 +75,6 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
     logger.info('Export path is %s.' % xp_path)
 
     logger.info('Dataset: %s' % dataset_name)
-    logger.info('Network: %s' % net_name)
 
     # If specified, load experiment config from JSON-file
     if load_config:
@@ -98,6 +99,22 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
         cfg.settings['device'] = 'cpu'
     logger.info('Computation device: %s' % cfg.settings['device'])
     logger.info('Number of dataloader workers: %d' % cfg.settings['n_jobs_dataloader'])
+    
+    if cfg.settings['visdom']:
+        try:
+            import visdom
+        except ImportError:
+            logger.warning('Visdom package not instaled -> setting visdom flag to False')
+            cfg.settings['visdom']=False
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect(('localhost',8097))
+            except socket.error:
+                logger.warning('Could not connect, please ensure the visdom server is running -> setting visdom flag to False')
+                cfg.settings['visdom']=False
+            finally: 
+                s.close()
 
     # Load data
     dataset = load_dataset(dataset_name, data_path)
@@ -113,6 +130,10 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
     # Initialize model and set neural network \phi
     model = Model(cfg.settings['objective'])
     model.set_network(net_name)
+    
+    logger.info('Network: %s' % net_name)
+    logger.info('Feature number: %s' % model.net.rep_dim)
+    
     # If specified, load model (radius R, center c, network weights, and possibly autoencoder weights)
     if load_model:
         Model.load_model(model_path=load_model, load_ae=True)
