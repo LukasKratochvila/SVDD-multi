@@ -5,8 +5,9 @@ from base.base_net import BaseNet
 from torch.utils.data.dataloader import DataLoader
 
 #from sklearn.metrics import roc_auc_score
-from metric import top_k_accuracy_score
-#from sklearn.metrics import accuracy_score
+#from metric import top_k_accuracy_score
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
 
 import logging
 import time
@@ -131,8 +132,8 @@ class ModelTrainer(BaseTrainer):
                     dist = torch.sum((outputs - self.c) ** 2, dim=1)
                     loss = torch.mean(dist)
                 else:
-                    dist = torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes) - self.c) ** 2, dim=1)
-                    loss = torch.sum(dist.gather(1, labels.view(-1,1)))
+                    dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes) - self.c) ** 2, dim=1))
+                    loss = torch.sum(dist.gather(1, labels.view(-1,1).type(torch.cuda.LongTensor)))
                     #loss = torch.sum(torch.mean(dist, dim=0))
                     #loss = torch.sum(torch.mean(dist[labels != torch.argmin(dist,dim=1)], dim=0))
                 
@@ -145,20 +146,22 @@ class ModelTrainer(BaseTrainer):
                 idx_label_score += list(zip(labels.cpu().data.numpy().tolist(),
                                             dist.cpu().data.numpy().tolist()))
             
+            loss_epoch /= n_batches
+            
             labels, scores = zip(*idx_label_score)
             #labels = np.array(np.argmax(labels,1))
             labels = np.array(labels)
             scores = np.array(scores)
             
-            #train_acc = accuracy_score(labels, np.argmin(scores, axis=1))
-            train_acc=top_k_accuracy_score(labels, scores, k=1)
+            train_acc = accuracy_score(labels, np.argmin(scores, axis=1))
+            # train_acc=top_k_accuracy_score(labels, scores, k=1)
             #self.update_vis_plot(epoch*len(train_loader), [loss.item()], self.iter_plot, 'append')
             #self.update_vis_plot(epoch*len(train_loader), [train_acc], self.iter_acc_plot, 'append')
             
             # log epoch statistics
             epoch_train_time = time.time() - epoch_start_time
             logger.info('  Epoch {}/{}\t Time: {:.3f}\t Loss: {:.8f}'
-                        .format(epoch + 1, self.n_epochs, epoch_train_time, loss_epoch / n_batches))
+                        .format(epoch + 1, self.n_epochs, epoch_train_time, loss_epoch))
             
             # validation
             if hasattr(dataset, "validation_set") and epoch % self.valid_epoch == 0:
@@ -176,15 +179,17 @@ class ModelTrainer(BaseTrainer):
                         if self.objective == 'one-class':
                             dist = torch.sum((outputs - self.c) ** 2, dim=1)
                         else:
-                            dist = torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1)
+                            dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1))
                         
-                        loss_val += torch.sum(dist.gather(1, labels.view(-1,1))).item()
+                        loss_val += torch.sum(dist.gather(1, labels.view(-1,1).type(torch.cuda.LongTensor))).item()
                         #loss_val += torch.mean(torch.sum(dist, dim=0)).item()
                         #loss_val += torch.sum(torch.mean(dist[labels != torch.argmin(dist,dim=1)], dim=0))
                         
                         idx_label_score += list(zip(idx.cpu().data.numpy().tolist(),
                                                     labels.cpu().data.numpy().tolist(),
                                                     dist.cpu().data.numpy().tolist()))
+                        
+                loss_val /= n_batches
 
                 val_train_time = time.time() - val_start_time
                 _, labels, scores = zip(*idx_label_score)
@@ -192,8 +197,8 @@ class ModelTrainer(BaseTrainer):
                 labels = np.array(labels)
                 scores = np.array(scores)
 
-                #val_acc = accuracy_score(labels, np.argmin(scores, axis=1))
-                val_acc = top_k_accuracy_score(labels,scores,k=1)
+                val_acc = accuracy_score(labels, np.argmin(scores, axis=1))
+                # val_acc = top_k_accuracy_score(labels,scores,k=1)
                 # if get better results save it
                 if val_acc > best_acc and self.restore_best:
                     net_dict = copy.deepcopy(net.state_dict())
@@ -212,7 +217,7 @@ class ModelTrainer(BaseTrainer):
             if epoch+1 in self.lr_milestones:
                 logger.info('  LR scheduler: new learning rate is %g' % float(scheduler.get_lr()[0]*0.1))
                 
-            if (epoch+1)%5 == 0:
+            if loss_epoch < 1 and False: #(epoch+1)%50 == 0:
                 logger.info('Center c Updating... ')
                 self.c = self.update_center_c(train_loader, net, dataset.n_classes, step=0.1)
                 if self.objective == 'multi-class':
@@ -275,7 +280,7 @@ class ModelTrainer(BaseTrainer):
                 if self.objective == 'one-class':
                     dist = torch.sum((outputs - self.c) ** 2, dim=1)
                 else:
-                    dist = torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1)
+                    dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1))
 
                 # Save triples of (idx, label, score) in a list
                 idx_label_score += list(zip(idx.cpu().data.numpy().tolist(),
@@ -294,9 +299,10 @@ class ModelTrainer(BaseTrainer):
         labels = np.array(labels_l)
         scores = np.array(scores)
 
-        #self.test_acc = accuracy_score(labels, np.argmin(scores, axis=1))
-        self.test_acc = top_k_accuracy_score(labels, scores,k=1)
+        self.test_acc = accuracy_score(labels, np.argmin(scores, axis=1))
+        #self.test_acc = top_k_accuracy_score(labels, scores,k=1)
         logger.info('Test set Top1: {:.2f}%'.format(100. * self.test_acc))
+        #logger.info('Test Top1: {:.2f}% : {:.2f}%'.format(100. * top_k_accuracy_score(labels, scores,k=1),100. * top_k_accuracy_score(labels, 1/scores,k=1)))
         
         # Plot points
         # points += self.c.cpu().data.numpy().tolist()
@@ -306,7 +312,7 @@ class ModelTrainer(BaseTrainer):
         
         if self.enable_vis:
             logger.info('Plotting points...')
-            for idx in range(0,min(6,self.c.shape[0]),3):
+            for idx in range(0,min(12,self.c.shape[0]),3):
                 self.viz.scatter(X=outputs[..., idx:idx+3].cpu(),
                                  Y=torch.Tensor(labels+1).cpu(),
                                  opts=dict(xlabel='Feature {}'.format(idx+1),
@@ -314,13 +320,18 @@ class ModelTrainer(BaseTrainer):
                                            zlabel='Feature {}'.format(idx+3),
                                            title='Points',
                                            markersize=3))
-                self.viz.scatter(X=torch.Tensor(self.c)[idx:idx+3].transpose(0,1).cpu(),
+                self.viz.scatter(X=self.c[idx:idx+3].transpose(0,1).cpu(),
+                                 Y=torch.Tensor([i for i in range(1,dataset.n_classes+1)]).cpu(),
                                  opts=dict(xlabel='Feature {}'.format(idx+1),
                                            ylabel='Feature {}'.format(idx+2),
                                            zlabel='Feature {}'.format(idx+3),
                                            title='Centers',
                                            markersize=7,
                                            markersymbol='cross'))
+            self.viz.heatmap(X=torch.Tensor(confusion_matrix(labels, np.argmin(scores, axis=1))).cpu(),
+                             opts=dict(columnnames=[i for i in range(1,dataset.n_classes+1)],
+                                       rownames=[i for i in range(1,dataset.n_classes+1)],
+                                       colormap='Electric'))
 
         logger.info('Finished testing.')
         
@@ -333,30 +344,45 @@ class ModelTrainer(BaseTrainer):
             n_samples = torch.zeros(n_classes)
             c = torch.zeros(net.rep_dim, n_classes, device=self.device)
 
-        net.eval()
-        with torch.no_grad():
-            for data in train_loader:
-                # get the inputs of the batch
-                inputs, labels, _ = data
-                inputs = inputs.to(self.device)
-                outputs = net(inputs)
-                if self.objective == 'one-class':
-                    n_samples += outputs.shape[0]
-                    c += torch.sum(outputs, dim=0)
-                else:
-                    for i in range(n_classes):
-                        n_samples[i] += outputs[labels == i].shape[0]
-                        c[..., i] += torch.sum(outputs[labels == i], dim=0)
+        # net.eval()
+        # with torch.no_grad():
+        #     for data in train_loader:
+        #         # get the inputs of the batch
+        #         inputs, labels, _ = data
+        #         inputs = inputs.to(self.device)
+        #         outputs = net(inputs)
+        #         if self.objective == 'one-class':
+        #             n_samples += outputs.shape[0]
+        #             c += torch.sum(outputs, dim=0)
+        #         else:
+        #             for i in range(n_classes):
+        #                 n_samples[i] += outputs[labels == i].shape[0]
+        #                 c[..., i] += torch.sum(outputs[labels == i], dim=0)
 
-        if self.objective == 'one-class':        
-            c /= n_samples
-        else:
-            for i in range(n_classes):
-                c[..., i] /= n_samples[i]
+        # if self.objective == 'one-class':        
+        #     c /= n_samples
+        # else:
+        #     for i in range(n_classes):
+        #         c[..., i] /= n_samples[i]
 
-        # If c_i is too close to 0, set to +-eps. Reason: a zero unit can be trivially matched with zero weights.
-        c[(abs(c) < eps) & (c < 0)] = -eps
-        c[(abs(c) < eps) & (c > 0)] = eps
+        # # If c_i is too close to 0, set to +-eps. Reason: a zero unit can be trivially matched with zero weights.
+        # c[(abs(c) < eps) & (c < 0)] = -eps
+        # c[(abs(c) < eps) & (c > 0)] = eps
+        
+        # experimnet t
+        # for i in range(1,n_classes+1):
+        #     c[..., i-1] = torch.randn(net.rep_dim)*i*1000
+
+        # experimnet a
+        # for i in range(1,n_classes+1):
+        #     c[..., i-1] = torch.Tensor([j for j in range(1,net.rep_dim+1)])*100*i
+        # experimnet b
+        # for i in range(1,n_classes+1):
+        #     c[..., i-1] = torch.Tensor([(-1)**j for j in range(1,net.rep_dim+1)])*100*i
+        
+        # experimnet 
+        for i in range(1,n_classes+1):
+            c[..., i-1] = torch.randn(net.rep_dim)*i
 
         return c
     def update_center_c(self, train_loader: DataLoader, net: BaseNet, n_classes: int, step: float=0.1):
@@ -383,7 +409,7 @@ class ModelTrainer(BaseTrainer):
             for i in range(n_classes):
                     diff[...,j,i]=self.c[...,j]-self.c[...,i]
         avg = torch.mean(diff, dim=2)
-        return self.c + step * torch.Tensor(avg)
+        return self.c + step * avg.to(self.device) #torch.sign(avg.to(self.device))
         
     def create_vis_plot(self, _xlabel, _ylabel, _title, _legend):
         return self.viz.line(X=torch.zeros((1,len(_legend))).cpu(),
