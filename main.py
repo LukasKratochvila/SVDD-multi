@@ -20,6 +20,9 @@ import socket
 @click.argument('xp_path', type=click.Path(exists=True))
 @click.argument('data_path', type=click.Path(exists=True))
 
+@click.option('--clas', type=int, default=[0], multiple=True, help='Set class from dataset.')
+@click.option('--dim', type=int, default=1000, help='Set reproduct dimension - number of features.')
+
 @click.option('--load_config', type=click.Path(exists=True), default=None,
               help='Config JSON-file path (default: None).')
 @click.option('--load_model', type=click.Path(exists=True), default=None,
@@ -33,7 +36,7 @@ import socket
 @click.option('--lr', type=float, default=0.01,
               help='Initial learning rate for network training. Default=0.001')
 @click.option('--n_epochs', type=int, default=100, help='Number of epochs to train.')
-@click.option('--lr_milestone', type=int, default=[], multiple=True,#10,20,30,40,50,70,90,110]
+@click.option('--lr_milestone', type=int, default=[50,100], multiple=True,#10,20,30,40,50,70,90,110]
               help='Lr scheduler milestones at which lr is multiplied by 0.1. Can be multiple and must be increasing.')
 @click.option('--batch_size', type=int, default=1280, help='Batch size for mini-batch training.')
 @click.option('--weight_decay', type=float, default=1e-6, help='Weight decay (L2 penalty).') #1e-6, 
@@ -45,7 +48,7 @@ import socket
 @click.option('--valid_epoch', type=int, default=-1, help='Epoch for validation.')
 @click.option('--restore_best', flag_value=True, default=False, help='Restore best model based on validation.')
 
-def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, objective, device, seed,
+def main(dataset_name, net_name, xp_path, data_path, clas, dim, load_config, load_model, objective, device, seed,
          optimizer_name, lr, n_epochs, lr_milestone, batch_size, weight_decay, l1, l2,
          n_jobs_dataloader, visdom, valid_epoch, restore_best):
     """
@@ -117,10 +120,11 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
                 s.close()
 
     # Load data
-    dataset = load_dataset(dataset_name, data_path)
+    dataset = load_dataset(dataset_name, data_path, normal_class=clas)
     
     logger.info('Dataset type: %s' % dataset)
     logger.info('Dataset class count: %s' % dataset.n_classes)
+    logger.info('Dataset normal class: %s' % str(dataset.normal_classes))
     logger.info('Dataset dir: %s' % dataset.root)
     logger.info('Dataset train set len: %s' % len(dataset.train_set))
     if hasattr(dataset, "validation_set"):
@@ -129,7 +133,7 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
 
     # Initialize model and set neural network \phi
     model = Model(cfg.settings['objective'])
-    model.set_network(net_name)
+    model.set_network(net_name, rep_dim=dim)
     
     logger.info('Network: %s' % net_name)
     logger.info('Feature number: %s' % model.net.rep_dim)
@@ -149,19 +153,19 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
 
     # Train model on dataset
     model.train(dataset,
-                    optimizer_name=cfg.settings['optimizer_name'],
-                    lr=cfg.settings['lr'],
-                    n_epochs=cfg.settings['n_epochs'],
-                    lr_milestones=cfg.settings['lr_milestone'],
-                    batch_size=cfg.settings['batch_size'],
-                    weight_decay=cfg.settings['weight_decay'],
-                    lbd1=cfg.settings['l1'],
-                    lbd2=cfg.settings['l2'],
-                    device=cfg.settings['device'],
-                    n_jobs_dataloader=cfg.settings['n_jobs_dataloader'],
-                    enable_vis=cfg.settings['visdom'],
-                    valid_epoch=cfg.settings['valid_epoch'],
-                    restore_best=cfg.settings['restore_best'])
+                optimizer_name=cfg.settings['optimizer_name'],
+                lr=cfg.settings['lr'],
+                n_epochs=cfg.settings['n_epochs'],
+                lr_milestones=cfg.settings['lr_milestone'],
+                batch_size=cfg.settings['batch_size'],
+                weight_decay=cfg.settings['weight_decay'],
+                lbd1=cfg.settings['l1'],
+                lbd2=cfg.settings['l2'],
+                device=cfg.settings['device'],
+                n_jobs_dataloader=cfg.settings['n_jobs_dataloader'],
+                enable_vis=cfg.settings['visdom'],
+                valid_epoch=cfg.settings['valid_epoch'],
+                restore_best=cfg.settings['restore_best'])
 
     # Test model
     model.test(dataset, device=cfg.settings['device'], n_jobs_dataloader=cfg.settings['n_jobs_dataloader'])

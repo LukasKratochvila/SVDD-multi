@@ -11,14 +11,16 @@ import torch
 
 class MNIST_Dataset(TorchvisionDataset):
 
-    def __init__(self, root: str, normal_class=0):
+    def __init__(self, root: str, normal_class=0, one_class: bool = False):
         super().__init__(root)
-
+        
         self.n_classes = 10  # 0: normal, 1: outlier
-        self.normal_classes = tuple([normal_class])
+        self.normal_classes = normal_class#tuple([normal_class])
         self.outlier_classes = list(range(0, 10))
-        self.outlier_classes.remove(normal_class)
+        #self.outlier_classes.remove(normal_class)
         self.name = "MNIST_Dataset"
+        
+        self.norm = normal_class[0] if isinstance(normal_class, tuple) else normal_class
 
         # Pre-computed min and max values (after applying GCN) from train data per class
         min_max = [(-0.8826567065619495, 9.001545489292527),
@@ -35,26 +37,36 @@ class MNIST_Dataset(TorchvisionDataset):
         # MNIST preprocessing: GCN (with L1 norm) and min-max feature scaling to [0,1]
         transform = transforms.Compose([transforms.ToTensor(),
                                         transforms.Lambda(lambda x: global_contrast_normalization(x, scale='l1')),
-                                        transforms.Normalize([min_max[normal_class][0]],
-                                                             [min_max[normal_class][1] - min_max[normal_class][0]])])
+                                        transforms.Normalize([min_max[self.norm][0]],
+                                                             [min_max[self.norm][1] - min_max[self.norm][0]])])
 
-        target_transform = None # transforms.Lambda(lambda x: int(x in self.outlier_classes))
+        target_transform = None #transforms.Lambda(lambda x: x-1)# None # transforms.Lambda(lambda x: int(x in self.outlier_classes))
 
         train_set = MyMNIST(n_classes=self.n_classes, sample=True,
                             root=self.root, train=True, download=True,
                             transform=transform, target_transform=target_transform)
-        # Subset train_set to normal class
-        # train_idx_normal = get_target_label_idx(train_set.train_labels.clone().data.cpu().numpy(), self.normal_classes)
-        # self.train_set = Subset(train_set, train_idx_normal)
-        self.train_set = train_set
-
-        self.test_set = MyMNIST(n_classes=self.n_classes, validation=False,
+        
+        test_set = MyMNIST(n_classes=self.n_classes, validation=False,
                                 root=self.root, train=False, download=True,
                                 transform=transform, target_transform=target_transform)
         
-        self.validation_set = MyMNIST(n_classes=self.n_classes, validation=True,
+        validation_set = MyMNIST(n_classes=self.n_classes, validation=True,
                                 root=self.root, train=False, download=True,
                                 transform=transform, target_transform=target_transform)
+        
+        # Subsets to normal class
+        if one_class:
+            self.n_classes = len(self.normal_classes)
+            train_idx_normal = get_target_label_idx(train_set.train_labels.clone().data.cpu().numpy(), self.normal_classes)
+            self.train_set = Subset(train_set, train_idx_normal)
+            test_idx_normal = get_target_label_idx(test_set.test_labels.clone().data.cpu().numpy(), self.normal_classes)
+            self.test_set = Subset(test_set, test_idx_normal)
+            val_idx_normal = get_target_label_idx(validation_set.test_labels.clone().data.cpu().numpy(), self.normal_classes)
+            self.validation_set = Subset(validation_set, val_idx_normal)
+        else:
+            self.train_set = train_set
+            self.test_set = test_set
+            self.validation_set = validation_set
 
 
 class MyMNIST(MNIST):

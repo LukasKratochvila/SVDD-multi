@@ -80,7 +80,7 @@ class ModelTrainer(BaseTrainer):
             logger.info('Initializing center c...')
             self.c = self.init_center_c(train_loader, net, dataset.n_classes, eps=0.00001)
             
-            if self.objective == 'multi-class':
+            if self.objective == 'multi-class' and dataset.n_classes > 1:
                 for j in range(dataset.n_classes):
                     l=list()
                     for i in range(dataset.n_classes):
@@ -92,6 +92,7 @@ class ModelTrainer(BaseTrainer):
                     if i >= j:
                         i += 1
                     logger.info('Minimal dist for {:d} class to {:d} class: {:.5f}'.format(j, i, np.min(l)))
+                    
             
             logger.info('Center c initialized.')
             
@@ -132,7 +133,11 @@ class ModelTrainer(BaseTrainer):
                     dist = torch.sum((outputs - self.c) ** 2, dim=1)
                     loss = torch.mean(dist)
                 else:
-                    dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes) - self.c) ** 2, dim=1))
+                    #dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes) - self.c) ** 2, dim=1))
+                    dist = torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes) - self.c) ** 2, dim=1)
+                    # if dataset.n_classes == 1:
+                    #     loss = torch.sum(dist)
+                    # else:
                     loss = torch.sum(dist.gather(1, labels.view(-1,1).type(torch.cuda.LongTensor)))
                     #loss = torch.sum(torch.mean(dist, dim=0))
                     #loss = torch.sum(torch.mean(dist[labels != torch.argmin(dist,dim=1)], dim=0))
@@ -179,8 +184,12 @@ class ModelTrainer(BaseTrainer):
                         if self.objective == 'one-class':
                             dist = torch.sum((outputs - self.c) ** 2, dim=1)
                         else:
-                            dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1))
+                            #dist = torch.sqrt(torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1))
+                            dist = torch.sum((outputs.unsqueeze(-1).repeat(1,1,dataset.n_classes)-self.c) ** 2, dim=1)
                         
+                        # if dataset.n_classes == 1:
+                        #     loss_val += torch.sum(dist)
+                        # else:
                         loss_val += torch.sum(dist.gather(1, labels.view(-1,1).type(torch.cuda.LongTensor))).item()
                         #loss_val += torch.mean(torch.sum(dist, dim=0)).item()
                         #loss_val += torch.sum(torch.mean(dist[labels != torch.argmin(dist,dim=1)], dim=0))
@@ -217,7 +226,7 @@ class ModelTrainer(BaseTrainer):
             if epoch+1 in self.lr_milestones:
                 logger.info('  LR scheduler: new learning rate is %g' % float(scheduler.get_lr()[0]*0.1))
                 
-            if loss_epoch < 1 and False: #(epoch+1)%50 == 0:
+            if loss_epoch < 20 and False: #(epoch+1)%50 == 0:
                 logger.info('Center c Updating... ')
                 self.c = self.update_center_c(train_loader, net, dataset.n_classes, step=0.1)
                 if self.objective == 'multi-class':
@@ -234,6 +243,28 @@ class ModelTrainer(BaseTrainer):
                         logger.info('Minimal dist for {:d} class to {:d} class: {:.5f}'.format(j, i, np.min(l)))
                 logger.info('Center c Updated. ')
                 
+            if self.enable_vis and (epoch+1)%10 == 0:
+                logger.info('Plotting statistics...')
+                # for idx in range(0,min(12,self.c.shape[0]),3):
+                #     self.viz.scatter(X=outputs[..., idx:idx+3].cpu(),
+                #                      Y=torch.Tensor(labels+1).cpu(),
+                #                      opts=dict(xlabel='Feature {}'.format(idx+1),
+                #                                ylabel='Feature {}'.format(idx+2),
+                #                                zlabel='Feature {}'.format(idx+3),
+                #                                title='Points',
+                #                                markersize=3))
+                    # self.viz.scatter(X=self.c[idx:idx+3].transpose(0,1).cpu(),
+                    #                  Y=torch.Tensor([i for i in range(1,dataset.n_classes+1)]).cpu(),
+                    #                  opts=dict(xlabel='Feature {}'.format(idx+1),
+                    #                            ylabel='Feature {}'.format(idx+2),
+                    #                            zlabel='Feature {}'.format(idx+3),
+                    #                            title='Centers',
+                    #                            markersize=7,
+                    #                            markersymbol='cross'))
+                for clas in range(dataset.n_classes):
+                    self.viz.boxplot(X=outputs[labels==clas].cpu(),
+                                     opts=dict(legend=['Feature {}'.format(i) for i in range(self.c.shape[0])],
+                                               title='Statistics after {:d} epochs for class {}'.format(epoch+1, clas+1)))
             if self.enable_vis:
                 if hasattr(dataset, "validation_set"):
                     self.update_vis_plot(epoch, [loss_epoch,loss_val], self.epoch_plot, 'append')
@@ -312,26 +343,44 @@ class ModelTrainer(BaseTrainer):
         
         if self.enable_vis:
             logger.info('Plotting points...')
-            for idx in range(0,min(12,self.c.shape[0]),3):
-                self.viz.scatter(X=outputs[..., idx:idx+3].cpu(),
-                                 Y=torch.Tensor(labels+1).cpu(),
-                                 opts=dict(xlabel='Feature {}'.format(idx+1),
-                                           ylabel='Feature {}'.format(idx+2),
-                                           zlabel='Feature {}'.format(idx+3),
-                                           title='Points',
-                                           markersize=3))
-                self.viz.scatter(X=self.c[idx:idx+3].transpose(0,1).cpu(),
-                                 Y=torch.Tensor([i for i in range(1,dataset.n_classes+1)]).cpu(),
-                                 opts=dict(xlabel='Feature {}'.format(idx+1),
-                                           ylabel='Feature {}'.format(idx+2),
-                                           zlabel='Feature {}'.format(idx+3),
-                                           title='Centers',
-                                           markersize=7,
-                                           markersymbol='cross'))
-            self.viz.heatmap(X=torch.Tensor(confusion_matrix(labels, np.argmin(scores, axis=1))).cpu(),
-                             opts=dict(columnnames=[i for i in range(1,dataset.n_classes+1)],
-                                       rownames=[i for i in range(1,dataset.n_classes+1)],
-                                       colormap='Electric'))
+            # for idx in range(0,min(12,self.c.shape[0]),3):
+            #     self.viz.scatter(X=outputs[..., idx:idx+3].cpu(),
+            #                      Y=torch.Tensor(labels+1).cpu(),
+            #                      opts=dict(xlabel='Feature {}'.format(idx+1),
+            #                                ylabel='Feature {}'.format(idx+2),
+            #                                zlabel='Feature {}'.format(idx+3),
+            #                                title='Points',
+            #                                markersize=3))
+            #     self.viz.scatter(X=self.c[idx:idx+3].transpose(0,1).cpu(),
+            #                      Y=torch.Tensor([i for i in range(1,dataset.n_classes+1)]).cpu(),
+            #                      opts=dict(xlabel='Feature {}'.format(idx+1),
+            #                                ylabel='Feature {}'.format(idx+2),
+            #                                zlabel='Feature {}'.format(idx+3),
+            #                                title='Centers',
+            #                                markersize=7,
+            #                                markersymbol='cross'))
+            cm=confusion_matrix(labels, np.argmin(scores, axis=1),labels=[i for i in range(0,dataset.n_classes)])[::-1]
+            cmn=confusion_matrix(labels, np.argmin(scores, axis=1),labels=[i for i in range(0,dataset.n_classes)], normalize='true')[::-1]
+            self.viz.heatmap(X=torch.Tensor(cm.copy()).cpu(),
+                             opts=dict(rownames=['class {}'.format(i) for i in range(dataset.n_classes,0,-1)],
+                                       columnnames=['pred {}'.format(i) for i in range(1,dataset.n_classes+1)],
+                                       colormap='Electric',
+                                       title='Confusion matrix'))
+            self.viz.heatmap(X=torch.Tensor(cmn.copy()*100).cpu(),
+                             opts=dict(rownames=['class {}'.format(i) for i in range(dataset.n_classes,0,-1)],
+                                       columnnames=['pred {}'.format(i) for i in range(1,dataset.n_classes+1)],
+                                       colormap='Electric',
+                                       title='Confusion matrix in % normalized class #'))
+            for clas in range(dataset.n_classes):
+                self.viz.boxplot(X=outputs[labels == clas],
+                                 opts=dict(legend=['Feature {}'.format(i) for i in range(self.c.shape[0])],
+                                           title='Statistics for class {} in test dataset'.format(clas+1)))
+                self.viz.scatter(X=torch.Tensor(([i*0.5 for i in range(0, self.c.shape[0])], self.c[..., clas])).transpose(0,1).cpu(),
+                                     Y=torch.Tensor([i for i in range(1,self.c.shape[0]+1)]).cpu(),
+                                     opts=dict(legend=['Feature {}'.format(i) for i in range(self.c.shape[0])],
+                                               title='Centers for class {}'.format(clas+1),
+                                               markersize=7,
+                                               markersymbol='cross'))
 
         logger.info('Finished testing.')
         
@@ -369,20 +418,20 @@ class ModelTrainer(BaseTrainer):
         # c[(abs(c) < eps) & (c < 0)] = -eps
         # c[(abs(c) < eps) & (c > 0)] = eps
         
-        # experimnet t
+        # experiment t
         # for i in range(1,n_classes+1):
         #     c[..., i-1] = torch.randn(net.rep_dim)*i*1000
 
-        # experimnet a
+        # experiment a
         # for i in range(1,n_classes+1):
         #     c[..., i-1] = torch.Tensor([j for j in range(1,net.rep_dim+1)])*100*i
-        # experimnet b
-        # for i in range(1,n_classes+1):
-        #     c[..., i-1] = torch.Tensor([(-1)**j for j in range(1,net.rep_dim+1)])*100*i
-        
-        # experimnet 
+        # experiment b
         for i in range(1,n_classes+1):
-            c[..., i-1] = torch.randn(net.rep_dim)*i
+            c[..., i-1] = torch.Tensor([j for j in range(1,net.rep_dim+1)])*(-1)**i*i
+        
+        # experiment 
+        # for i in range(1,n_classes+1):
+        #     c[..., i-1] = torch.randn(net.rep_dim)*i
 
         return c
     def update_center_c(self, train_loader: DataLoader, net: BaseNet, n_classes: int, step: float=0.1):
@@ -459,4 +508,3 @@ class ModelTrainer(BaseTrainer):
             file.write(to_write + '\n')
         file.close()
         vis.delete_env(env=current_env)
-        

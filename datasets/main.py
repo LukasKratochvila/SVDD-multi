@@ -4,17 +4,21 @@ from .mnist import MNIST_Dataset
 from .joybuy import JOYBUY_Dataset
 
 def implemented_datasets():
-    return ('joybuy','mnist','cifar10','mydata100', 'mydata200', 'mydata300', 'mydata400','mydata100aa','mydata200aa','mydata300aa','mydata400aa','mydata100H', 'mydata300H','mydata100Haa','mydata300Haa')
+    return ('mnist_one','joybuy','mnist','cifar10','mydata100', 'mydata200', 'mydata300', 'mydata400','mydata100aa','mydata200aa','mydata300aa','mydata400aa','mydata100H', 'mydata300H','mydata100Haa','mydata300Haa')
 
-def load_dataset(dataset_name, data_path):
+def load_dataset(dataset_name, data_path, normal_class):
     """Loads the dataset."""
 
     assert dataset_name in implemented_datasets()
 
     dataset = None
     
+    if dataset_name == 'mnist_one':
+        dataset = MNIST_Dataset(root=data_path, normal_class=normal_class, one_class=True)
+        
     if dataset_name == 'joybuy':
         dataset = JOYBUY_Dataset(root=data_path)
+    
     if dataset_name == 'mnist':
         dataset = MNIST_Dataset(root=data_path)
         

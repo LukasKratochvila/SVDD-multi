@@ -58,7 +58,7 @@ def load_log_at(path):
 
 def load_log(env):
     dir_path = os.getcwd()
-    load_log_at(dir_path + '/log/' + env + '.log')
+    load_log_at(dir_path + '/log/' + env + '/visdom.log')
 
 
 def load_all_log():

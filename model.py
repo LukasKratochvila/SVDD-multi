@@ -42,10 +42,10 @@ class Model(object):
             'test_scores': None,
         }
 
-    def set_network(self, net_name):
+    def set_network(self, net_name, rep_dim):
         """Builds the neural network \phi."""
         self.net_name = net_name
-        self.net = build_network(net_name)
+        self.net = build_network(net_name, rep_dim = rep_dim)
 
     def train(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 50,
               lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, lbd1: float = 0,
